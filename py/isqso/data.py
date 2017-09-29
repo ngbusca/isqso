@@ -6,7 +6,7 @@ import glob
 
 llmin = np.log10(3600)
 llmax = np.log10(10000)
-dll = 5e-4
+dll = 1e-3
 pmf2tid = None
 qso_thids = None
 

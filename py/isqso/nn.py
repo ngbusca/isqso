@@ -5,10 +5,7 @@ def sigmoid(z):
     return 1/(1+np.exp(-z))
 
 def activate(z):
-    '''
-    RELU
-    '''
-    return z*(z>0)
+    return np.tanh(z)
 
 def compute_cost(A2,Y):
 
@@ -25,84 +22,91 @@ def compute_cost(A2,Y):
 
 def forward_propagation(X,parameters):
 
-    W1 = parameters["W1"]
-    b1 = parameters["b1"]
-    W2 = parameters["W2"]
-    b2 = parameters["b2"]
+    L = parameters["L"]
+    cache = {}
 
-    Z1 = W1.dot(X)+b1
-    A1 = activate(Z1)
+    A = X
+    for ell in range(1,L):
+        W = parameters["W"+str(ell)]
+        b = parameters["b"+str(ell)]
+
+        Z = W.dot(A)+b
+        A = activate(Z)
+
+        cache["Z"+str(ell)]=Z
+        cache["A"+str(ell)]=A
     
-    Z2 = W2.dot(A1)+b2
-    A2 = sigmoid(Z2)
+    ## last iteration with sigmoid
+    W = parameters["W"+str(ell+1)]
+    b = parameters["b"+str(ell+1)]
+    Z = W.dot(A)+b
+    A = sigmoid(Z)
+    cache["Z"+str(ell+1)]=Z
+    cache["A"+str(ell+1)]=A
 
-    cache = {"Z1": Z1,
-             "A1": A1,
-             "Z2": Z2,
-             "A2": A2}
 
-    return A2,cache
+    return A,cache
 
 def backward_propagation(parameters,cache,X,Y):
 
     m = X.shape[1]
+    L = parameters["L"]
 
-    W1 = parameters["W1"]
-    W2 = parameters["W2"]
+    A2 = cache["A"+str(L)]
+    dZ = A2 - Y
 
-    A1 = cache["A1"]
-    A2 = cache["A2"]
+    grads = {}
+    for ell in range(L,1,-1):
+        A1 = cache["A"+str(ell-1)]
+        dW = dZ.dot(A1.T)/m
+        db = dZ.sum(axis=1,keepdims=True)/m
 
-    dZ2= A2-Y
-    dW2 = dZ2.dot(A1.T)/m
-    db2 = dZ2.sum(axis=1,keepdims=True)/m
+        W = parameters["W"+str(ell)]
+        dZ = W.T.dot(dZ)*(1-A1**2)
+        A2 = A1
 
-    dZ1 = W2.T.dot(dZ2)*(A2>0)#*(1-A2**2)
-    dW1 = dZ1.dot(X.T)/m
-    db1 = dZ1.sum(axis=1,keepdims=True)
+        grads["dW"+str(ell)] = dW
+        grads["db"+str(ell)] = db
 
-    grads = {"dW1":dW1,"db1":db1,"dW2":dW2,"db2":db2}
+    ## last...
+    dW = dZ.dot(X.T)/m
+    db = dZ.sum(axis=1,keepdims=True)/m
+    grads["dW1"] = dW
+    grads["db1"] = db
+
     return grads
     
-def initialize_parameters(nx,nn):
-    W1 = random.randn(nn,nx)*0.01
-    b1 = np.zeros((nn,1))
-
-    W2 = random.randn(1,nn)*0.01
-    b2 = np.zeros((1,1))
-
-    parameters = {"W1":W1,"b1":b1,"b2":b2,"W2":W2}
+def initialize_parameters(nn):
+    parameters = {"L":len(nn)-1}
+    for ell in range(1,len(nn)):
+        W = random.randn(nn[ell],nn[ell-1])*0.01
+        b = np.zeros((nn[ell],1))
+        parameters["W"+str(ell)]=W
+        parameters["b"+str(ell)]=b
 
     return parameters
 
 def update_parameters(parameters,grads,learning_rate=1.):
-    W1 = parameters["W1"]
-    b1 = parameters["b1"]
-    W2 = parameters["W2"]
-    b2 = parameters["b2"]
 
-    dW1 = grads["dW1"]
-    db1 = grads["db1"]
-    dW2 = grads["dW2"]
-    db2 = grads["db2"]
+    L = parameters["L"]
+    pars_out = {"L":L}
+    for ell in range(1,L+1):
+        W = parameters["W"+str(ell)]
+        b = parameters["b"+str(ell)]
+        dW = grads["dW"+str(ell)]
+        db = grads["db"+str(ell)]
+        W -= learning_rate*dW
+        db -= learning_rate*db
+        pars_out["W"+str(ell)]=W
+        pars_out["b"+str(ell)]=b
 
-    W1 -= learning_rate*dW1
-    b1 -= learning_rate*db1
-    W2 -= learning_rate*dW2
-    b2 -= learning_rate*db2
-
-    parameters = {"W1": W1,
-                  "b1": b1,
-                  "W2": W2,
-                  "b2": b2}
-
-    
-    return parameters
+    return pars_out
 
 
-def nn_model(X,Y,nn=10,nit = 1000,learning_rate=1.):
+def nn_model(X,Y,nn=[10],nit = 1000,learning_rate=1.):
     nx = X.shape[0]
-    parameters = initialize_parameters(nx,nn)
+    nn = [nx] + nn
+    parameters = initialize_parameters(nn)
 
     cost_vs_iter = []
 
