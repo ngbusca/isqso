@@ -97,8 +97,10 @@ def read_plate(indir,spall,drq):
     return data,isqso
 
 
-def read_plates(plate_dir,spall,drq):
+def read_plates(plate_dir,spall,drq,nplates=None):
     fi = glob.glob(plate_dir+"/????/")
+    if nplates is not None:
+        fi = fi[:nplates]
     data = []
     isqso = []
     for d in fi:
