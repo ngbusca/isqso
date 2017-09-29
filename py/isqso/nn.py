@@ -37,12 +37,12 @@ def forward_propagation(X,parameters):
         cache["A"+str(ell)]=A
     
     ## last iteration with sigmoid
-    W = parameters["W"+str(ell+1)]
-    b = parameters["b"+str(ell+1)]
+    W = parameters["W"+str(L)]
+    b = parameters["b"+str(L)]
     Z = W.dot(A)+b
     A = sigmoid(Z)
-    cache["Z"+str(ell+1)]=Z
-    cache["A"+str(ell+1)]=A
+    cache["Z"+str(L)]=Z
+    cache["A"+str(L)]=A
 
 
     return A,cache

@@ -108,6 +108,8 @@ def read_plates(plate_dir,spall,drq):
         isqso.append(plate_isqso)
 
     data = np.hstack(data)
+    data -= data.mean(axis=1).reshape((-1,1))
+    data /= data.std(axis=1).reshape((-1,1))
     isqso = np.hstack(isqso)
 
     return data,isqso
