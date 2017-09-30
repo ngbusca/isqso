@@ -5,18 +5,23 @@ def sigmoid(z):
     return 1/(1+np.exp(-z))
 
 def activate(z):
+    return z*(z>0)
     return np.tanh(z)
 
-def compute_cost(A2,Y):
+def compute_cost(A2,Y,parameters,reg_factor):
 
     m = Y.shape[1]
 
-    logprobs = Y*np.log(A2) + (1-Y)*np.log(1-A2)
+    logprobs = Y*np.log(A2) + (1-Y)*np.log(1-A2) 
+    reg = 0.
+    for ell in range(1,parameters["L"]+1):
+        reg += np.sum(parameters["W"+str(ell)]**2)
+
     w = np.isnan(logprobs)
     if w.sum()>0:
         stop
 
-    cost = -logprobs.sum()/m
+    cost = -logprobs.sum()/m + reg_factor*reg/2/m
 
     return cost
 
@@ -47,7 +52,7 @@ def forward_propagation(X,parameters):
 
     return A,cache
 
-def backward_propagation(parameters,cache,X,Y):
+def backward_propagation(parameters,cache,X,Y,reg_factor):
 
     m = X.shape[1]
     L = parameters["L"]
@@ -58,12 +63,16 @@ def backward_propagation(parameters,cache,X,Y):
     grads = {}
     for ell in range(L,1,-1):
         A1 = cache["A"+str(ell-1)]
-        dW = dZ.dot(A1.T)/m
+        dW = dZ.dot(A1.T)/m 
         db = dZ.sum(axis=1,keepdims=True)/m
 
         W = parameters["W"+str(ell)]
-        dZ = W.T.dot(dZ)*(1-A1**2)
+        Z1 = cache["Z"+str(ell-1)]
+        dZ = W.T.dot(dZ)*(Z1>0)#*(1-A1**2)
         A2 = A1
+
+        ## add regularization
+        dW += reg_factor*W/m
 
         grads["dW"+str(ell)] = dW
         grads["db"+str(ell)] = db
@@ -96,33 +105,60 @@ def update_parameters(parameters,grads,learning_rate=1.):
         dW = grads["dW"+str(ell)]
         db = grads["db"+str(ell)]
         W -= learning_rate*dW
-        db -= learning_rate*db
+        b -= learning_rate*db
         pars_out["W"+str(ell)]=W
         pars_out["b"+str(ell)]=b
 
     return pars_out
 
 
-def nn_model(X,Y,nn=[10],nit = 1000,learning_rate=1.):
+def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_factor=1.):
+    np.random.seed(3)
     nx = X.shape[0]
     nn = [nx] + nn
     parameters = initialize_parameters(nn)
 
-    cost_vs_iter = []
+    cost = []
+    success = []
+    cost_valid = []
+    success_valid = []
 
+
+    prev_cost = 1.
+    learning_rate = max_learning_rate
+    nlow=0
     for i in range(nit):
         A2, cache = forward_propagation(X,parameters)
-        cost = compute_cost(A2,Y)
-        cost_vs_iter.append(cost)
+        w = A2 > 0.5
+        s=((w*Y).sum() + ((~w)*(~Y)).sum())*1./Y.shape[1]
+        success.append(s)
+        c = compute_cost(A2,Y,parameters,reg_factor)
+        cost.append(c)
 
-        grads = backward_propagation(parameters,cache,X,Y)
+        A2, _ = forward_propagation(X_valid,parameters)
+        w = A2>0.5
+        s_valid = ((w*Y_valid).sum() + ((~w)*(~Y_valid)).sum())*1./Y_valid.shape[1]
+        success_valid.append(s_valid)
+        c_valid = compute_cost(A2,Y_valid,parameters,reg_factor)
+        cost_valid.append(c_valid)
+
+        if c > prev_cost:
+            learning_rate /= 1.1
+        else:
+            nlow +=1
+            if nlow == 10 and learning_rate<max_learning_rate:
+                learning_rate *= 1.1
+                nlow=0
+        prev_cost = c
+
+        grads = backward_propagation(parameters,cache,X,Y,reg_factor)
 
         parameters = update_parameters(parameters,grads,learning_rate)
 
         if i %10 == 0:
-            print("INFO: iteration {}, cost {}".format(i,cost))
+            print("INFO: iteration {}, c {},cv {}, s {}, sv {}".format(i,c,c_valid,round(s,2),round(s_valid,2)))
 
 
-    return parameters,cost_vs_iter
+    return parameters,cost,cost_valid,success,success_valid
 
 

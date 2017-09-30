@@ -32,6 +32,9 @@ def read_plate(indir,spall,drq):
         drq.close()
 
     fi = glob.glob(indir+"/spCFrame-b1*")
+    if len(fi)==0:
+        print("INFO: no spCFrames found in {}".format(indir))
+        return
     ## choose a random exposure
     a = random.uniform(size=len(fi))
     infile = fi[a.argsort()[0]]
@@ -52,12 +55,16 @@ def read_plate(indir,spall,drq):
         print("INFO: found {} quasars in file {}".format(w.sum(),thefile))
         h.close()
 
-        hb=fitsio.FITS(infile.replace("b1","b{}".format(spectro)))
+        try:
+            hb=fitsio.FITS(infile.replace("b1","b{}".format(spectro)))
+            hr=fitsio.FITS(infile.replace("b1","r{}".format(spectro)))
+        except:
+            continue
+
         plate = hb[0].read_header()["PLATEID"]
         mjd = hb[0].read_header()["MJD"]
         fid = hb[5]["FIBERID"][:]
 
-        hr=fitsio.FITS(infile.replace("b1","r{}".format(spectro)))
         fl = np.hstack((hb[0].read(),hr[0].read()))
         iv = np.hstack((hb[1].read()*(hb[2].read()==0),hr[1].read()*(hr[2].read()==0)))
         ll = np.hstack((hb[3].read(),hr[3].read()))
@@ -84,6 +91,8 @@ def read_plate(indir,spall,drq):
                 t = -1
             isqso.append(t in qso_thids)
 
+    if len(data)==0:
+        return
     data = np.vstack(data).T
     ## now normalize fluxes
     norm = data[nbins:,:]
@@ -100,14 +109,23 @@ def read_plate(indir,spall,drq):
 def read_plates(plate_dir,spall,drq,nplates=None):
     fi = glob.glob(plate_dir+"/????/")
     if nplates is not None:
-        fi = fi[:nplates]
+        ifi = random.uniform(size=len(fi))
+        fi = [fi[i] for i in ifi.argsort()]
     data = []
     isqso = []
+    read_plates = 0
     for d in fi:
         print("INFO: reading plate {}".format(d))
-        plate_data,plate_isqso = read_plate(d,spall,drq)
+        res = read_plate(d,spall,drq)
+        if res is None:
+            continue
+        read_plates += 1
+        plate_data,plate_isqso = res
         data.append(plate_data)
         isqso.append(plate_isqso)
+        if nplates is not None:
+            if read_plates == nplates:
+                break
 
     data = np.hstack(data)
     data -= data.mean(axis=1).reshape((-1,1))
