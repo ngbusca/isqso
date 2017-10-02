@@ -42,10 +42,14 @@ def read_plate(indir,spall,drq):
     ## for red and blue
     data = []
     isqso = []
+    tids = []
 
     for spectro in ['1','2']:
-        thefile = infile.replace("b1","b{}".format(spectro))
-        h=fitsio.FITS(thefile)
+        try:
+            thefile = infile.replace("b1","b{}".format(spectro))
+            h=fitsio.FITS(thefile)
+        except:
+            continue
         target_bits = h[5]["BOSS_TARGET1"][:]
         w = np.zeros(len(target_bits),dtype=bool)
         mask = [10,11,12,13,14,15,16,17,18,19,40,41,42,43,44]
@@ -90,6 +94,7 @@ def read_plate(indir,spall,drq):
             else:
                 t = -1
             isqso.append(t in qso_thids)
+            tids.append(t)
 
     if len(data)==0:
         return
@@ -103,7 +108,7 @@ def read_plate(indir,spall,drq):
 
     assert isqso.shape[1] == data.shape[1]
 
-    return data,isqso
+    return tids,data,isqso
 
 
 def read_plates(plate_dir,spall,drq,nplates=None):
@@ -114,22 +119,26 @@ def read_plates(plate_dir,spall,drq,nplates=None):
     data = []
     isqso = []
     read_plates = 0
+    tids = []
     for d in fi:
         print("INFO: reading plate {}".format(d))
         res = read_plate(d,spall,drq)
         if res is None:
             continue
         read_plates += 1
-        plate_data,plate_isqso = res
+        tid,plate_data,plate_isqso = res
         data.append(plate_data)
         isqso.append(plate_isqso)
+        tids = tids + tid
         if nplates is not None:
             if read_plates == nplates:
                 break
 
     data = np.hstack(data)
-    data -= data.mean(axis=1).reshape((-1,1))
-    data /= data.std(axis=1).reshape((-1,1))
+    mdata = data.mean(axis=1).reshape((-1,1))
+    data -= mdata
+    std = data.std(axis=1).reshape((-1,1))
+    data /= std
     isqso = np.hstack(isqso)
 
-    return data,isqso
+    return tid,mdata,std,data,isqso

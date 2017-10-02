@@ -1,5 +1,6 @@
 import numpy as np
 from numpy import random
+import fitsio
 
 def sigmoid(z):
     return 1/(1+np.exp(-z))
@@ -57,19 +58,21 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
     m = X.shape[1]
     L = parameters["L"]
 
-    A2 = cache["A"+str(L)]
-    dZ = A2 - Y
+    AL = cache["A"+str(L)]
+    dAL = - (Y/AL) + (1-Y)/(1-AL)
+    Z = cache["Z"+str(L)]
+    dZ = dAL*(Z>0)
 
     grads = {}
     for ell in range(L,1,-1):
-        A1 = cache["A"+str(ell-1)]
-        dW = dZ.dot(A1.T)/m 
+        A = cache["A"+str(ell-1)]
+        dW = dZ.dot(A.T)/m 
         db = dZ.sum(axis=1,keepdims=True)/m
 
         W = parameters["W"+str(ell)]
-        Z1 = cache["Z"+str(ell-1)]
-        dZ = W.T.dot(dZ)*(Z1>0)#*(1-A1**2)
-        A2 = A1
+        dA = W.T.dot(dZ)
+        Z = cache["Z"+str(ell-1)]
+        dZ = dA*(Z>0)#*(1-A**2)
 
         ## add regularization
         dW += reg_factor*W/m
@@ -112,11 +115,12 @@ def update_parameters(parameters,grads,learning_rate=1.):
     return pars_out
 
 
-def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_factor=1.):
-    np.random.seed(3)
+def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None):
     nx = X.shape[0]
     nn = [nx] + nn
-    parameters = initialize_parameters(nn)
+    nn = nn + [Y.shape[0]]
+    if parameters is None:
+        parameters = initialize_parameters(nn)
 
     cost = []
     success = []
@@ -129,36 +133,47 @@ def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_fact
     nlow=0
     for i in range(nit):
         A2, cache = forward_propagation(X,parameters)
-        w = A2 > 0.5
-        s=((w*Y).sum() + ((~w)*(~Y)).sum())*1./Y.shape[1]
-        success.append(s)
         c = compute_cost(A2,Y,parameters,reg_factor)
+        grads = backward_propagation(parameters,cache,X,Y,reg_factor)
+
+        if c > prev_cost:
+            learning_rate /= 1.5
+        else:
+            nlow +=1
+            if nlow == 5 and learning_rate<max_learning_rate:
+                learning_rate *= 1.5
+                nlow=0
+        prev_cost = c
+
+        w = A2 > 0.5
+        s=((w*Y).sum() + ((~w)*(1-Y)).sum())*1./Y.shape[1]
+        success.append(s)
         cost.append(c)
 
         A2, _ = forward_propagation(X_valid,parameters)
         w = A2>0.5
-        s_valid = ((w*Y_valid).sum() + ((~w)*(~Y_valid)).sum())*1./Y_valid.shape[1]
+        s_valid = ((w*Y_valid).sum()+((~w)*(1-Y_valid)).sum())*1./Y_valid.shape[1]
         success_valid.append(s_valid)
         c_valid = compute_cost(A2,Y_valid,parameters,reg_factor)
         cost_valid.append(c_valid)
 
-        if c > prev_cost:
-            learning_rate /= 1.1
-        else:
-            nlow +=1
-            if nlow == 10 and learning_rate<max_learning_rate:
-                learning_rate *= 1.1
-                nlow=0
-        prev_cost = c
+        print("INFO: iteration {}, c {},cv {}, s {}, sv {}".format(i,c,c_valid,round(s,2),round(s_valid,2)))
 
-        grads = backward_propagation(parameters,cache,X,Y,reg_factor)
 
         parameters = update_parameters(parameters,grads,learning_rate)
 
-        if i %10 == 0:
-            print("INFO: iteration {}, c {},cv {}, s {}, sv {}".format(i,c,c_valid,round(s,2),round(s_valid,2)))
-
-
     return parameters,cost,cost_valid,success,success_valid
 
+def export(fout,data,parameters,cost):
+    f = fitsio.FITS(fout,"rw",clobber=True)
+    f.write(data[3],extname="DATA")
+    f.write(data[4],extname="TRUTH")
+    f.write(np.array(data[0]),extname="THINGIDS")
+    f.write([data[1],data[2]],names=["MEAN","STD"],extname="MEANSTD")
+    f.write(np.array(cost),extname="COST")
+    for ell in range(1,parameters["L"]+1):
+        W = parameters["W"+str(ell)]
+        b = parameters["b"+str(ell)]
+        f.write([W,b],names=["W"+str(ell),"b"+str(ell)])
+    f.close()
 
