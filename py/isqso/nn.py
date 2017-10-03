@@ -9,11 +9,11 @@ def activate(z):
     return z*(z>0)
     return np.tanh(z)
 
-def compute_cost(A2,Y,parameters,reg_factor):
+def compute_cost(AL,Y,parameters,reg_factor):
 
     m = Y.shape[1]
 
-    logprobs = Y*np.log(A2) + (1-Y)*np.log(1-A2) 
+    logprobs = Y*np.log(AL) + (1-Y)*np.log(1-AL) 
     reg = 0.
     for ell in range(1,parameters["L"]+1):
         reg += np.sum(parameters["W"+str(ell)]**2)
@@ -50,7 +50,6 @@ def forward_propagation(X,parameters):
     cache["Z"+str(L)]=Z
     cache["A"+str(L)]=A
 
-
     return A,cache
 
 def backward_propagation(parameters,cache,X,Y,reg_factor):
@@ -58,10 +57,10 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
     m = X.shape[1]
     L = parameters["L"]
 
-    AL = cache["A"+str(L)]
-    dAL = - (Y/AL) + (1-Y)/(1-AL)
+    A = cache["A"+str(L)]
+    dA = - (Y/A) + (1-Y)/(1-A)
     Z = cache["Z"+str(L)]
-    dZ = dAL*(Z>0)
+    dZ = dA*A*(1-A)
 
     grads = {}
     for ell in range(L,1,-1):
@@ -70,15 +69,17 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
         db = dZ.sum(axis=1,keepdims=True)/m
 
         W = parameters["W"+str(ell)]
-        dA = W.T.dot(dZ)
-        Z = cache["Z"+str(ell-1)]
-        dZ = dA*(Z>0)#*(1-A**2)
 
         ## add regularization
         dW += reg_factor*W/m
 
         grads["dW"+str(ell)] = dW
         grads["db"+str(ell)] = db
+
+        ## calculate dZ for next round
+        dA = W.T.dot(dZ)
+        Z = cache["Z"+str(ell-1)]
+        dZ = dA*(Z>0)#*(1-A**2)
 
     ## last...
     dW = dZ.dot(X.T)/m
@@ -91,7 +92,7 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
 def initialize_parameters(nn):
     parameters = {"L":len(nn)-1}
     for ell in range(1,len(nn)):
-        W = random.randn(nn[ell],nn[ell-1])*0.01
+        W = random.randn(nn[ell],nn[ell-1])*np.sqrt(2./nn[ell-1])
         b = np.zeros((nn[ell],1))
         parameters["W"+str(ell)]=W
         parameters["b"+str(ell)]=b
@@ -115,7 +116,11 @@ def update_parameters(parameters,grads,learning_rate=1.):
     return pars_out
 
 
-def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None):
+def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None):
+
+    if max_learning_rate is None:
+        max_learning_rate = learning_rate_init
+
     nx = X.shape[0]
     nn = [nx] + nn
     nn = nn + [Y.shape[0]]
@@ -129,11 +134,14 @@ def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=1,reg_fact
 
 
     prev_cost = 1.
-    learning_rate = max_learning_rate
+    learning_rate = learning_rate_init
     nlow=0
     for i in range(nit):
         A2, cache = forward_propagation(X,parameters)
-        c = compute_cost(A2,Y,parameters,reg_factor)
+        try:
+            c = compute_cost(A2,Y,parameters,reg_factor)
+        except:
+            stop
         grads = backward_propagation(parameters,cache,X,Y,reg_factor)
 
         if c > prev_cost:
