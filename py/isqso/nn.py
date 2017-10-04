@@ -1,28 +1,25 @@
 import numpy as np
 from numpy import random
 import fitsio
+import copy
 
 def sigmoid(z):
     return 1/(1+np.exp(-z))
 
 def activate(z):
     return z*(z>0)
-    return np.tanh(z)
+    #return np.tanh(z)
 
 def compute_cost(AL,Y,parameters,reg_factor):
 
     m = Y.shape[1]
-
-    logprobs = Y*np.log(AL) + (1-Y)*np.log(1-AL) 
+    
+    logprobs = np.log(AL[0,Y[0]]).sum() + np.log(1-AL[0,~Y[0]]).sum()
     reg = 0.
     for ell in range(1,parameters["L"]+1):
         reg += np.sum(parameters["W"+str(ell)]**2)
 
-    w = np.isnan(logprobs)
-    if w.sum()>0:
-        stop
-
-    cost = -logprobs.sum()/m + reg_factor*reg/2/m
+    cost = -logprobs/m + reg_factor*reg/2/m
 
     return cost
 
@@ -79,7 +76,8 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
         ## calculate dZ for next round
         dA = W.T.dot(dZ)
         Z = cache["Z"+str(ell-1)]
-        dZ = dA*(Z>0)#*(1-A**2)
+        dZ = dA*(Z>0)
+        #dZ = dA*(1-A**2)
 
     ## last...
     dW = dZ.dot(X.T)/m
@@ -92,7 +90,7 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
 def initialize_parameters(nn):
     parameters = {"L":len(nn)-1}
     for ell in range(1,len(nn)):
-        W = random.randn(nn[ell],nn[ell-1])*np.sqrt(2./nn[ell-1])
+        W = random.randn(nn[ell],nn[ell-1])*np.sqrt(1./nn[ell-1])
         b = np.zeros((nn[ell],1))
         parameters["W"+str(ell)]=W
         parameters["b"+str(ell)]=b
@@ -116,7 +114,7 @@ def update_parameters(parameters,grads,learning_rate=1.):
     return pars_out
 
 
-def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None):
+def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None,num_mini_batches=1,momentum=0.,momentum2=0):
 
     if max_learning_rate is None:
         max_learning_rate = learning_rate_init
@@ -129,48 +127,45 @@ def nn_model(X,Y,X_valid,Y_valid,nn=[10],nit = 1000,max_learning_rate=None,reg_f
 
     cost = []
     success = []
-    cost_valid = []
-    success_valid = []
 
-
-    prev_cost = 1.
     learning_rate = learning_rate_init
     nlow=0
+    x_mini_batches = np.array_split(X,num_mini_batches,axis=1)
+    y_mini_batches = np.array_split(Y,num_mini_batches,axis=1)
+    grad0 = {}
+    prev_cost = 1
+    nprev = 0
+    max_learning_rate=learning_rate
     for i in range(nit):
-        A2, cache = forward_propagation(X,parameters)
-        try:
-            c = compute_cost(A2,Y,parameters,reg_factor)
-        except:
-            stop
-        grads = backward_propagation(parameters,cache,X,Y,reg_factor)
+        for x,y in zip(x_mini_batches,y_mini_batches):
+            A2, cache = forward_propagation(x,parameters)
+            grads = backward_propagation(parameters,cache,x,y,reg_factor)
+            if len(grad0) == 0:
+                grad0 = copy.deepcopy(grads)
+            else:
+                for p in grads:
+                    grad0[p] = momentum*grad0[p] + (1-momentum)*grads[p]
+            parameters = update_parameters(parameters,grad0,learning_rate)
 
-        if c > prev_cost:
-            learning_rate /= 1.5
-        else:
-            nlow +=1
-            if nlow == 5 and learning_rate<max_learning_rate:
-                learning_rate *= 1.5
-                nlow=0
-        prev_cost = c
-
+        A2,_ = forward_propagation(X,parameters)
+        c = compute_cost(A2,Y,parameters,reg_factor)
         w = A2 > 0.5
         s=((w*Y).sum() + ((~w)*(1-Y)).sum())*1./Y.shape[1]
         success.append(s)
         cost.append(c)
+        if c > prev_cost:
+            learning_rate /= 1.1
+            nprev = 0
+        else:
+            nprev+=1
+            if nprev>=10 and learning_rate<max_learning_rate:
+                learning_rate*=1.1
+                nprev=0
 
-        A2, _ = forward_propagation(X_valid,parameters)
-        w = A2>0.5
-        s_valid = ((w*Y_valid).sum()+((~w)*(1-Y_valid)).sum())*1./Y_valid.shape[1]
-        success_valid.append(s_valid)
-        c_valid = compute_cost(A2,Y_valid,parameters,reg_factor)
-        cost_valid.append(c_valid)
+        prev_cost = c
+        print("INFO: iteration {}, c {}, s {}".format(i,c,s))
 
-        print("INFO: iteration {}, c {},cv {}, s {}, sv {}".format(i,c,c_valid,round(s,2),round(s_valid,2)))
-
-
-        parameters = update_parameters(parameters,grads,learning_rate)
-
-    return parameters,cost,cost_valid,success,success_valid
+    return parameters,cost,success
 
 def export(fout,data,parameters,cost):
     f = fitsio.FITS(fout,"rw",clobber=True)
@@ -184,4 +179,42 @@ def export(fout,data,parameters,cost):
         b = parameters["b"+str(ell)]
         f.write([W,b],names=["W"+str(ell),"b"+str(ell)])
     f.close()
+
+def test_backprop(X,Y,parameters,epsilon=1e-3):
+    A,cache = forward_propagation(X,parameters)
+    grads = backward_propagation(parameters,cache,X,Y,0.)
+    for p in parameters:
+        if p =="L":continue
+        pars = copy.deepcopy(parameters)
+        W = parameters[p]
+        i = random.randint(W.shape[0])
+        j = random.randint(W.shape[1])
+        pars[p][i,j] = W[i,j]+epsilon
+        A,_ = forward_propagation(X,pars)
+        cp = compute_cost(A,Y,pars,0)
+        pars[p][i,j] = W[i,j]-epsilon
+        A,_ = forward_propagation(X,pars)
+        cm = compute_cost(A,Y,pars,0)
+        print("numerical d{}[{},{}]: {}".format(p,i,j,(cp-cm)/(2*epsilon)))
+        print("backpropa d{}[{},{}]: {}".format(p,i,j,grads["d"+p][i,j]))
+
+
+    print("Now again but regularization")
+
+    grads = backward_propagation(parameters,cache,X,Y,1.)
+    for p in parameters:
+        if p =="L":continue
+        pars = copy.deepcopy(parameters)
+        W = parameters[p]
+        i = random.randint(W.shape[0])
+        j = random.randint(W.shape[1])
+        pars[p][i,j] = W[i,j]+epsilon
+        A,_ = forward_propagation(X,pars)
+        cp = compute_cost(A,Y,pars,1)
+        pars[p][i,j] = W[i,j]-epsilon
+        A,_ = forward_propagation(X,pars)
+        cm = compute_cost(A,Y,pars,1)
+        print("numerical d{}[{},{}]: {}".format(p,i,j,(cp-cm)/(2*epsilon)))
+        print("backpropa d{}[{},{}]: {}".format(p,i,j,grads["d"+p][i,j]))
+
 
