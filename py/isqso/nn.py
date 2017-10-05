@@ -10,8 +10,13 @@ def activate(z):
     return z*(z>0)
     #return np.tanh(z)
 
-def compute_cost(AL,Y,parameters,reg_factor):
+def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
+    if kind=="logistic":
+        return cost_logistic(AL,Y,parameters,reg_factor)
+    elif kind=="chi2":
+        return cost_chi2(AL,Y,parameters,reg_factor)
 
+def cost_logistic(AL,Y,parameters,reg_factor):
     m = Y.shape[1]
     
     logprobs = np.log(AL[0,Y[0]]).sum() + np.log(1-AL[0,~Y[0]]).sum()
@@ -22,6 +27,17 @@ def compute_cost(AL,Y,parameters,reg_factor):
     cost = -logprobs/m + reg_factor*reg/2/m
 
     return cost
+
+def cost_chi2(AL,Y,parameters,reg_factor):
+    m = Y.shape[1]
+    chi2 = np.sum((AL-Y)**2)/2/m
+    reg = 0
+    for ell in range(1,parameters["L"]+1):
+        reg += np.sum(parameters["W"+str(ell)]**2)
+
+    chi2 += reg_factor*reg/2/m
+
+    return chi2
 
 def forward_propagation(X,parameters):
 
@@ -49,13 +65,16 @@ def forward_propagation(X,parameters):
 
     return A,cache
 
-def backward_propagation(parameters,cache,X,Y,reg_factor):
+def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
 
     m = X.shape[1]
     L = parameters["L"]
 
     A = cache["A"+str(L)]
-    dA = - (Y/A) + (1-Y)/(1-A)
+    if kind=="logistic":
+        dA = - (Y/A) + (1-Y)/(1-A)
+    elif kind=="chi2":
+        dA = A-Y
     Z = cache["Z"+str(L)]
     dZ = dA*A*(1-A)
 
@@ -82,7 +101,8 @@ def backward_propagation(parameters,cache,X,Y,reg_factor):
     ## last...
     dW = dZ.dot(X.T)/m
     db = dZ.sum(axis=1,keepdims=True)/m
-    grads["dW1"] = dW
+    W = parameters["W1"]
+    grads["dW1"] = dW + reg_factor*W/m
     grads["db1"] = db
 
     return grads
@@ -114,7 +134,7 @@ def update_parameters(parameters,grads,learning_rate=1.):
     return pars_out
 
 
-def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None,num_mini_batches=1,momentum=0.,momentum2=0):
+def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None,num_mini_batches=1,momentum=0.9,momentum2=0.999,kind="logistic",verbose=1):
 
     if max_learning_rate is None:
         max_learning_rate = learning_rate_init
@@ -133,22 +153,32 @@ def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,paramet
     x_mini_batches = np.array_split(X,num_mini_batches,axis=1)
     y_mini_batches = np.array_split(Y,num_mini_batches,axis=1)
     grad0 = {}
+    S = {}
     prev_cost = 1
     nprev = 0
     max_learning_rate=learning_rate
     for i in range(nit):
         for x,y in zip(x_mini_batches,y_mini_batches):
             A2, cache = forward_propagation(x,parameters)
-            grads = backward_propagation(parameters,cache,x,y,reg_factor)
+            grads = backward_propagation(parameters,cache,x,y,reg_factor,kind=kind)
             if len(grad0) == 0:
                 grad0 = copy.deepcopy(grads)
+                for p in grad0:
+                    S[p]=grad0[p]*0.
             else:
                 for p in grads:
                     grad0[p] = momentum*grad0[p] + (1-momentum)*grads[p]
+                    S[p] = momentum2*S[p]/(1-momentum2**i)+momentum2*grads[p]**2
+                    if p=="db1":
+                        print grads[p]
+                    if i>10000:
+                        grad0[p]/=np.sqrt(S[p])
+
             parameters = update_parameters(parameters,grad0,learning_rate)
 
+
         A2,_ = forward_propagation(X,parameters)
-        c = compute_cost(A2,Y,parameters,reg_factor)
+        c = compute_cost(A2,Y,parameters,reg_factor,kind=kind)
         w = A2 > 0.5
         s=((w*Y).sum() + ((~w)*(1-Y)).sum())*1./Y.shape[1]
         success.append(s)
@@ -163,7 +193,8 @@ def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,paramet
                 nprev=0
 
         prev_cost = c
-        print("INFO: iteration {}, c {}, s {}".format(i,c,s))
+        if i%verbose==0:
+            print("INFO: iteration {}, c {}, s {}".format(i,c,s))
 
     return parameters,cost,success
 
@@ -180,9 +211,9 @@ def export(fout,data,parameters,cost):
         f.write([W,b],names=["W"+str(ell),"b"+str(ell)])
     f.close()
 
-def test_backprop(X,Y,parameters,epsilon=1e-3):
+def test_backprop(X,Y,parameters,epsilon=1e-3,kind="logistic"):
     A,cache = forward_propagation(X,parameters)
-    grads = backward_propagation(parameters,cache,X,Y,0.)
+    grads = backward_propagation(parameters,cache,X,Y,0.,kind=kind)
     for p in parameters:
         if p =="L":continue
         pars = copy.deepcopy(parameters)
@@ -191,17 +222,17 @@ def test_backprop(X,Y,parameters,epsilon=1e-3):
         j = random.randint(W.shape[1])
         pars[p][i,j] = W[i,j]+epsilon
         A,_ = forward_propagation(X,pars)
-        cp = compute_cost(A,Y,pars,0)
+        cp = compute_cost(A,Y,pars,0,kind=kind)
         pars[p][i,j] = W[i,j]-epsilon
         A,_ = forward_propagation(X,pars)
-        cm = compute_cost(A,Y,pars,0)
+        cm = compute_cost(A,Y,pars,0,kind=kind)
         print("numerical d{}[{},{}]: {}".format(p,i,j,(cp-cm)/(2*epsilon)))
         print("backpropa d{}[{},{}]: {}".format(p,i,j,grads["d"+p][i,j]))
 
 
     print("Now again but regularization")
-
-    grads = backward_propagation(parameters,cache,X,Y,1.)
+    reg_factor=1.
+    grads = backward_propagation(parameters,cache,X,Y,reg_factor,kind=kind)
     for p in parameters:
         if p =="L":continue
         pars = copy.deepcopy(parameters)
@@ -210,10 +241,10 @@ def test_backprop(X,Y,parameters,epsilon=1e-3):
         j = random.randint(W.shape[1])
         pars[p][i,j] = W[i,j]+epsilon
         A,_ = forward_propagation(X,pars)
-        cp = compute_cost(A,Y,pars,1)
+        cp = compute_cost(A,Y,pars,reg_factor,kind=kind)
         pars[p][i,j] = W[i,j]-epsilon
         A,_ = forward_propagation(X,pars)
-        cm = compute_cost(A,Y,pars,1)
+        cm = compute_cost(A,Y,pars,reg_factor,kind=kind)
         print("numerical d{}[{},{}]: {}".format(p,i,j,(cp-cm)/(2*epsilon)))
         print("backpropa d{}[{},{}]: {}".format(p,i,j,grads["d"+p][i,j]))
 
