@@ -3,12 +3,25 @@ from numpy import random
 import fitsio
 import copy
 
-def sigmoid(z):
-    return 1/(1+np.exp(-z))
+def sigmoid(z,epsilon=1e-7):
+    return epsilon+(1-2*epsilon)/(1+np.exp(-z))
 
-def activate(z):
-    return z*(z>0)
-    #return np.tanh(z)
+def sigmoid_prim(z,epsilon=1e-7):
+    a = sigmoid(z,epsilon)
+    return (1-2*epsilon)*a*(1-a)
+
+def activate(z,kind="relu"):
+    if kind=="relu":
+        return z*(z>0)
+    elif kind=="tanh":
+        return np.tanh(z)
+
+def activate_prim(z,kind="relu"):
+    if kind == "relu":
+        return z>0
+    elif kind =="tanh":
+        a = np.tanh(z)
+        return 1-a**2
 
 def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
     if kind=="logistic":
@@ -62,7 +75,6 @@ def forward_propagation(X,parameters):
     A = sigmoid(Z)
     cache["Z"+str(L)]=Z
     cache["A"+str(L)]=A
-
     return A,cache
 
 def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
@@ -76,7 +88,7 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
     elif kind=="chi2":
         dA = A-Y
     Z = cache["Z"+str(L)]
-    dZ = dA*A*(1-A)
+    dZ = dA*sigmoid_prim(Z)
 
     grads = {}
     for ell in range(L,1,-1):
@@ -92,8 +104,7 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
         ## calculate dZ for next round
         dA = W.T.dot(dZ)
         Z = cache["Z"+str(ell-1)]
-        dZ = dA*(Z>0)
-        #dZ = dA*(1-A**2)
+        dZ = dA*activate_prim(Z)
 
     ## last...
     dW = dZ.dot(X.T)/m
@@ -163,8 +174,8 @@ def split_batch(X,Y,mini_batch_size):
 
     ## last
     if m % mini_batch_size != 0:
-        x_mini_batch_size.append(X_shuffled[:,m-m % mini_batch_size:m])
-        y_mini_batch_size.append(Y_shuffled[:,m-m % mini_batch_size:m])
+        x_mini_batch.append(X_shuffled[:,m-m % mini_batch_size:m])
+        y_mini_batch.append(Y_shuffled[:,m-m % mini_batch_size:m])
 
     return x_mini_batch, y_mini_batch
 
@@ -210,8 +221,8 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
             elif method == "adam":
                 parameters,v,s,t = update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t)
             cost.append(c)
-            if i%verbose==0:
-                print("INFO: iteration {}, c {}".format(i,c))
+
+        print("INFO: iteration {}, c {}".format(i,c))
 
     return parameters,cost
 

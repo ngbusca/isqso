@@ -7,21 +7,21 @@ import glob
 llmin = np.log10(3600)
 llmax = np.log10(10000)
 dll = 1e-3
-pmf2tid = None
+pf2tid = None
 qso_thids = None
 
 nbins = int((llmax-llmin)/dll)
 wave = 10**(llmin + np.arange(nbins)*dll)
 
 def read_plate(indir,spall,drq):
-    global pmf2tid,qso_thids
-    if pmf2tid is None:
+    global pf2tid,qso_thids
+    if pf2tid is None:
         spall = fitsio.FITS(spall)
         plate=spall[1]["PLATE"][:]
         mjd = spall[1]["MJD"][:]
         fid = spall[1]["FIBERID"][:]
         tid = spall[1]["THING_ID"][:]
-        pmf2tid = {(p,m,f):t for p,m,f,t in zip(plate,mjd,fid,tid)}
+        pf2tid = {(p,f):t for p,f,t in zip(plate,fid,tid)}
         spall.close()
 
     if qso_thids is None :
@@ -66,7 +66,6 @@ def read_plate(indir,spall,drq):
             continue
 
         plate = hb[0].read_header()["PLATEID"]
-        mjd = hb[0].read_header()["MJD"]
         fid = hb[5]["FIBERID"][:]
 
         fl = np.hstack((hb[0].read(),hr[0].read()))
@@ -89,8 +88,8 @@ def read_plate(indir,spall,drq):
             c = np.bincount(bins,weights=iv[i,wbin])
             iv_aux[:len(c)]=+c
             data.append(np.hstack((fl_aux,iv_aux)))
-            if (plate,mjd,fid[i]) in pmf2tid:
-                t = pmf2tid[(plate,mjd,fid[i])]
+            if (plate,fid[i]) in pf2tid:
+                t = pf2tid[(plate,fid[i])]
             else:
                 t = -1
             isqso.append(t in qso_thids)
@@ -141,4 +140,4 @@ def read_plates(plate_dir,spall,drq,nplates=None):
     data /= std
     isqso = np.hstack(isqso)
 
-    return tid,mdata,std,data,isqso
+    return tids,mdata,std,data,isqso
