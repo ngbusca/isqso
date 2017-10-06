@@ -86,11 +86,8 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
 
         W = parameters["W"+str(ell)]
 
-        ## add regularization
-        dW += reg_factor*W/m
-
-        grads["dW"+str(ell)] = dW
-        grads["db"+str(ell)] = db
+        grads["W"+str(ell)] = dW + reg_factor*W/m
+        grads["b"+str(ell)] = db
 
         ## calculate dZ for next round
         dA = W.T.dot(dZ)
@@ -102,8 +99,8 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
     dW = dZ.dot(X.T)/m
     db = dZ.sum(axis=1,keepdims=True)/m
     W = parameters["W1"]
-    grads["dW1"] = dW + reg_factor*W/m
-    grads["db1"] = db
+    grads["W1"] = dW + reg_factor*W/m
+    grads["b1"] = db
 
     return grads
     
@@ -117,27 +114,61 @@ def initialize_parameters(nn):
 
     return parameters
 
-def update_parameters(parameters,grads,learning_rate=1.):
+def update_parameters(parameters,grads,learning_rate):
 
-    L = parameters["L"]
-    pars_out = {"L":L}
-    for ell in range(1,L+1):
-        W = parameters["W"+str(ell)]
-        b = parameters["b"+str(ell)]
-        dW = grads["dW"+str(ell)]
-        db = grads["db"+str(ell)]
-        W -= learning_rate*dW
-        b -= learning_rate*db
-        pars_out["W"+str(ell)]=W
-        pars_out["b"+str(ell)]=b
+    for p in parameters:
+        if p == "L":continue
+        parameters[p] -= learning_rate*grads[p]
 
-    return pars_out
+    return parameters
 
 
-def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,parameters=None,learning_rate_init = 1.,fout=None,num_mini_batches=1,momentum=0.9,momentum2=0.999,kind="logistic",verbose=1):
+def update_parameters_momentum(parameters,grads,learning_rate,v,beta):
 
-    if max_learning_rate is None:
-        max_learning_rate = learning_rate_init
+    for p in parameters:
+        if p == "L":continue
+        v[p] = beta*v[p] + (1-beta)*grads[p]
+        parameters[p] -= learning_rate*v[p]
+
+    return parameters,v
+
+
+def update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t,epsilon=1e-7):
+
+    for p in parameters:
+        if p == "L":continue
+        v[p] = beta1*v[p] + (1-beta1)*grads[p]
+        v_corrected = v[p]/(1-beta1**t)
+
+        s[p] = beta2*s[p] + (1-beta2)*grads[p]**2
+        s_corrected = s[p]/(1-beta2**t)
+
+        parameters[p] -= learning_rate*v_corrected/(epsilon + np.sqrt(s_corrected))
+
+    return parameters,v,s,t+1
+
+def split_batch(X,Y,mini_batch_size):
+    m = X.shape[1]
+
+    x_mini_batch = []
+    y_mini_batch = []
+
+    a = np.random.rand(m).argsort()
+    X_shuffled = X[:,a]
+    Y_shuffled = Y[:,a]
+
+    for i in range(m//mini_batch_size):
+        x_mini_batch.append(X_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size])
+        y_mini_batch.append(Y_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size])
+
+    ## last
+    if m % mini_batch_size != 0:
+        x_mini_batch_size.append(X_shuffled[:,m-m % mini_batch_size:m])
+        y_mini_batch_size.append(Y_shuffled[:,m-m % mini_batch_size:m])
+
+    return x_mini_batch, y_mini_batch
+
+def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate = 1.,fout=None,mini_batch_size=None,momentum=0.9,momentum2=0.999,kind="logistic",method="gd",beta1=None,beta2=None,verbose=10):
 
     nx = X.shape[0]
     nn = [nx] + nn
@@ -146,57 +177,43 @@ def nn_model(X,Y,nn=[10],nit = 1000,max_learning_rate=None,reg_factor=1.,paramet
         parameters = initialize_parameters(nn)
 
     cost = []
-    success = []
 
-    learning_rate = learning_rate_init
     nlow=0
-    x_mini_batches = np.array_split(X,num_mini_batches,axis=1)
-    y_mini_batches = np.array_split(Y,num_mini_batches,axis=1)
-    grad0 = {}
-    S = {}
-    prev_cost = 1
-    nprev = 0
-    max_learning_rate=learning_rate
+    if mini_batch_size is None:
+        mini_batch_size = X.shape[1]
+
+    if method == "momentum" or method == "adam":
+        if beta1 is None:
+            beta1 = 0.9
+        v = {}
+        for p in parameters:
+            v[p] = parameters[p]*0
+    if method == "adam":
+        if beta2 == None:
+            beta2 = 0.999
+        s = {}
+        t = 1
+        for p in parameters:
+            s[p] = parameters[p]*0
+
     for i in range(nit):
+        x_mini_batches, y_mini_batches = split_batch(X,Y,mini_batch_size)
         for x,y in zip(x_mini_batches,y_mini_batches):
-            A2, cache = forward_propagation(x,parameters)
+            A, cache = forward_propagation(x,parameters)
             grads = backward_propagation(parameters,cache,x,y,reg_factor,kind=kind)
-            if len(grad0) == 0:
-                grad0 = copy.deepcopy(grads)
-                for p in grad0:
-                    S[p]=grad0[p]*0.
-            else:
-                for p in grads:
-                    grad0[p] = momentum*grad0[p] + (1-momentum)*grads[p]
-                    S[p] = momentum2*S[p]/(1-momentum2**i)+momentum2*grads[p]**2
-                    if p=="db1":
-                        print grads[p]
-                    if i>10000:
-                        grad0[p]/=np.sqrt(S[p])
+            A,_ = forward_propagation(X,parameters)
+            c = compute_cost(A,Y,parameters,reg_factor,kind=kind)
+            if method == "gd":
+                parameters = update_parameters(parameters,grads,learning_rate)
+            elif method == "momentum":
+                parameters,v = update_parameters_momentum(parameters,grads,learning_rate,v,beta1)
+            elif method == "adam":
+                parameters,v,s,t = update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t)
+            cost.append(c)
+            if i%verbose==0:
+                print("INFO: iteration {}, c {}".format(i,c))
 
-            parameters = update_parameters(parameters,grad0,learning_rate)
-
-
-        A2,_ = forward_propagation(X,parameters)
-        c = compute_cost(A2,Y,parameters,reg_factor,kind=kind)
-        w = A2 > 0.5
-        s=((w*Y).sum() + ((~w)*(1-Y)).sum())*1./Y.shape[1]
-        success.append(s)
-        cost.append(c)
-        if c > prev_cost:
-            learning_rate /= 1.1
-            nprev = 0
-        else:
-            nprev+=1
-            if nprev>=10 and learning_rate<max_learning_rate:
-                learning_rate*=1.1
-                nprev=0
-
-        prev_cost = c
-        if i%verbose==0:
-            print("INFO: iteration {}, c {}, s {}".format(i,c,s))
-
-    return parameters,cost,success
+    return parameters,cost
 
 def export(fout,data,parameters,cost):
     f = fitsio.FITS(fout,"rw",clobber=True)
