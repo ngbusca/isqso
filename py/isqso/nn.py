@@ -160,6 +160,8 @@ def update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t,epsi
 
 def split_batch(X,Y,mini_batch_size):
     m = X.shape[1]
+    if mini_batch_size == m:
+        return [X],[Y]
 
     x_mini_batch = []
     y_mini_batch = []
@@ -209,7 +211,7 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
 
     for i in range(nit):
         x_mini_batches, y_mini_batches = split_batch(X,Y,mini_batch_size)
-        for x,y in zip(x_mini_batches,y_mini_batches):
+        for imini,(x,y) in enumerate(zip(x_mini_batches,y_mini_batches)):
             A, cache = forward_propagation(x,parameters)
             grads = backward_propagation(parameters,cache,x,y,reg_factor,kind=kind)
             A,_ = forward_propagation(X,parameters)
@@ -222,21 +224,19 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
                 parameters,v,s,t = update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t)
             cost.append(c)
 
-        print("INFO: iteration {}, c {}".format(i,c))
+            print("INFO: mini-batch {} iteration {}, c {}".format(imini,i,c))
 
     return parameters,cost
 
-def export(fout,data,parameters,cost):
+def export(fout,parameters,cost):
     f = fitsio.FITS(fout,"rw",clobber=True)
-    f.write(data[3],extname="DATA")
-    f.write(data[4],extname="TRUTH")
-    f.write(np.array(data[0]),extname="THINGIDS")
-    f.write([data[1],data[2]],names=["MEAN","STD"],extname="MEANSTD")
-    f.write(np.array(cost),extname="COST")
+    head={"LAYERS":parameters["L"]}
+
+    f.write(np.array(cost),extname="COST",head=head)
     for ell in range(1,parameters["L"]+1):
         W = parameters["W"+str(ell)]
         b = parameters["b"+str(ell)]
-        f.write([W,b],names=["W"+str(ell),"b"+str(ell)])
+        f.write([W,b],names=["W"+str(ell),"b"+str(ell)],extname="LAYER{}".format(ell))
     f.close()
 
 def test_backprop(X,Y,parameters,epsilon=1e-3,kind="logistic"):
