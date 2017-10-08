@@ -181,7 +181,7 @@ def split_batch(X,Y,mini_batch_size):
 
     return x_mini_batch, y_mini_batch
 
-def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate = 1.,fout=None,mini_batch_size=None,momentum=0.9,momentum2=0.999,kind="logistic",method="gd",beta1=None,beta2=None,verbose=10):
+def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate = 1.,mini_batch_size=None,momentum=0.9,momentum2=0.999,kind="logistic",method="gd",beta1=None,beta2=None,verbose=10):
 
     nx = X.shape[0]
     nn = [nx] + nn
@@ -223,16 +223,23 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
             elif method == "adam":
                 parameters,v,s,t = update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t)
             cost.append(c)
-
+            
             print("INFO: mini-batch {} iteration {}, c {}".format(imini,i,c))
 
     return parameters,cost
 
-def export(fout,parameters,cost):
+def export(fout,parameters,arq,cost,mean_data,std_data,alpha,reg_factor,nit):
     f = fitsio.FITS(fout,"rw",clobber=True)
-    head={"LAYERS":parameters["L"]}
+    head={"LAYERS":parameters["L"],"ALPHA":alpha,"REG":reg_factor,"NIT":nit}
+    sarq = "logistic"
+    if len(arq)>0:
+        sarq=""
+        for s in arg:
+            sarq = sarq+str(arq)+" "
 
-    f.write(np.array(cost),extname="COST",head=head)
+    head["ARQ"] = sarq
+    f.write(np.array(cost),extname="COST",header=head)
+    f.write([mean_data,std_data],names=["MDATA","SDATA"],extname="MEANSTD")
     for ell in range(1,parameters["L"]+1):
         W = parameters["W"+str(ell)]
         b = parameters["b"+str(ell)]
