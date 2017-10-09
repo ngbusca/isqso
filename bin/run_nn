@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import fitsio
+from isqso import nn
+import argparse
+import os
+from isqso import data
+import numpy as np
+
+if __name__=="__main__":
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--data","-d",required=True,type=str,help="data file")
+    parser.add_argument("--arq","-a",type=int,required=False,default=[],nargs="*",help="space-separated number of neurons per layer")
+    parser.add_argument("--out-prefix","-o",type=str,required=True,help="out file")
+    parser.add_argument("--super-drq",type=str,required=True,help="Super DRQ")
+    parser.add_argument("--alpha",required=True,type=float,help="learning rate")
+    parser.add_argument("--reg-factor",required=False,default=0.,type=float,help="regularization factor")
+    parser.add_argument("--nit",required=True,type=int,help="number of iterations")
+    parser.add_argument("--mini-batch-size",required=False,type=int,help="number of iterations")
+
+    args = parser.parse_args()
+
+    h = fitsio.FITS(args.data)
+    Xtmp = h[0].read()
+    tids = h[1]["TARGETID"][:]
+
+    tc = data.read_drq_superset(args.super_drq)
+    w = np.in1d(tids,tc.keys())
+    X = np.zeros((Xtmp.shape[0],w.sum()))
+    X[:] = Xtmp[:,w]
+
+    Y = np.array([tc[t] for t in tids]).T
+
+    print("TOTO: {}".format(Y.shape))
+
+    print("INFO: data shape {}".format(X.shape))
+    ## use only normalized fluxes:
+    x = X[:X.shape[0]/2,:]
+    mx = x.mean(axis=1).reshape(-1,1)
+    x-=mx
+    sx = x.std(axis=1).reshape(-1,1)
+    x/=sx
+
+    pars,cost = nn.nn_model(x,Y,nit=args.nit,nn=args.arq,reg_factor=args.reg_factor,learning_rate=args.alpha,method="adam",mini_batch_size=args.mini_batch_size)
+
+    fout = args.out_prefix
+    for i in args.arq:
+        fout=fout+"_"+str(i)
+    fout = fout + "_nit_"+str(args.nit)
+    fout = fout + "_alpha_{:.1e}".format(args.alpha)
+    fout = fout + ".fits.gz"
+    nn.export(fout,pars,args.arq,cost,mx,sx,args.alpha,args.reg_factor,args.nit)
+
