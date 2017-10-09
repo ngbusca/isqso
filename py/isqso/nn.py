@@ -33,12 +33,11 @@ def cost_logistic(AL,Y,parameters,reg_factor):
     m = Y.shape[1]
     
     logprobs = Y.dot(np.log(AL.T)) + (1-Y).dot(np.log(1-AL.T))
-    logprobs = logprobs.ravel()
     reg = 0.
     for ell in range(1,parameters["L"]+1):
         reg += np.sum(parameters["W"+str(ell)]**2)
 
-    cost = -logprobs/m + reg_factor*reg/2/m
+    cost = -logprobs.sum()/m + reg_factor*reg/2/m
 
     return cost
 
