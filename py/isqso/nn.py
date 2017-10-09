@@ -32,7 +32,8 @@ def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
 def cost_logistic(AL,Y,parameters,reg_factor):
     m = Y.shape[1]
     
-    logprobs = np.log(AL[0,Y[0]]).sum() + np.log(1-AL[0,~Y[0]]).sum()
+    logprobs = Y.dot(np.log(AL.T)) + (1-Y).dot(np.log(1-AL.T))
+    logprobs = logprobs.ravel()
     reg = 0.
     for ell in range(1,parameters["L"]+1):
         reg += np.sum(parameters["W"+str(ell)]**2)
@@ -224,7 +225,8 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
                 parameters,v,s,t = update_parameters_adam(parameters,grads,learning_rate,v,beta1,s,beta2,t)
             cost.append(c)
             
-            print("INFO: mini-batch {} iteration {}, c {}".format(imini,i,c))
+            if imini%verbose==0 or i%verbose==0:
+                print("INFO: mini-batch {} iteration {}, c {}".format(imini,i,c))
 
     return parameters,cost
 
@@ -234,8 +236,8 @@ def export(fout,parameters,arq,cost,mean_data,std_data,alpha,reg_factor,nit):
     sarq = "logistic"
     if len(arq)>0:
         sarq=""
-        for s in arg:
-            sarq = sarq+str(arq)+" "
+        for s in arq:
+            sarq = sarq+str(s)+" "
 
     head["ARQ"] = sarq
     f.write(np.array(cost),extname="COST",header=head)

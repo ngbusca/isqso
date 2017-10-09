@@ -9,11 +9,11 @@ llmax = np.log10(10000)
 dll = 1e-3
 
 nbins = int((llmax-llmin)/dll)
+nmasked_max = nbins/10
 wave = 10**(llmin + np.arange(nbins)*dll)
 
-def read_spcframe(b_spcframe,r_spcframe,pf2tid,qso_thids):
+def read_spcframe(b_spcframe,r_spcframe,pf2tid):
     data = []
-    isqso = []
     tids = []
 
     hb = fitsio.FITS(b_spcframe)
@@ -38,6 +38,12 @@ def read_spcframe(b_spcframe,r_spcframe,pf2tid,qso_thids):
     ll = ll[w,:]
 
     for i in range(fl.shape[0]):
+        if (plate,fid[i]) in pf2tid:
+            t = pf2tid[(plate,fid[i])]
+        else:
+            print("DEBUG: ({},{}) not found in spall".format(plate,fid[i]))
+            continue
+
         fl_aux = np.zeros(nbins)
         iv_aux = np.zeros(nbins)
         bins = ((ll[i]-llmin)/dll).astype(int)
@@ -47,12 +53,11 @@ def read_spcframe(b_spcframe,r_spcframe,pf2tid,qso_thids):
         fl_aux[:len(c)]=+c
         c = np.bincount(bins,weights=iv[i,wbin])
         iv_aux[:len(c)]=+c
+        nmasked = (iv_aux==0).sum()
+        if nmasked >= nmasked_max :
+            print("INFO: skipping specrum {} with too many masked pixels {}".format(t,nmasked))
+            continue
         data.append(np.hstack((fl_aux,iv_aux)))
-        if (plate,fid[i]) in pf2tid:
-            t = pf2tid[(plate,fid[i])]
-        else:
-            t = -1
-        isqso.append(t in qso_thids)
         tids.append(t)
 
         assert ~np.isnan(fl_aux,iv_aux).any()
@@ -62,17 +67,14 @@ def read_spcframe(b_spcframe,r_spcframe,pf2tid,qso_thids):
     data = np.vstack(data).T
     assert ~np.isnan(data).any()
     ## now normalize coadded fluxes
-    norm = data[nbins:,:]
+    norm = data[nbins:,:]*1.
     w = norm==0
     norm[w] = 1.
     data[:nbins,:]/=norm
-    isqso = np.array(isqso).reshape((1,len(isqso)))
-
-    assert isqso.shape[1] == data.shape[1]
 
     assert ~np.isnan(data).any()
 
-    return tids,data,isqso
+    return tids,data
 
 def read_spall(spall):
     spall = fitsio.FITS(spall)
@@ -80,24 +82,65 @@ def read_spall(spall):
     mjd = spall[1]["MJD"][:]
     fid = spall[1]["FIBERID"][:]
     tid = spall[1]["THING_ID"][:]
-    pf2tid = {(p,f):t for p,f,t in zip(plate,fid,tid)}
+    specprim=spall[1]["SPECPRIMARY"][:]
+    pf2tid = {(p,f):t for p,f,t,s in zip(plate,fid,tid,specprim) if s==1}
     spall.close()
     return pf2tid
 
-def read_drq(drq):
+def read_drq_superset(drq_sup,high_z = 2.1):
+    ##from https://arxiv.org/pdf/1311.4870.pdf
+    ##      only return targets with z_conf_person == 3:
+    ##      class person: 1 (Star), 3 (QSO), 4 (Galaxy), 30 (QSO_BAL)
+    ##      my class_person: 1 (Star), 3 (QSO and z < hz), 4 (Galaxy), 5 (QSO and z>=hz), 30 (QSO_BAL)
 
-    drq = fitsio.FITS(drq)
+    drq = fitsio.FITS(drq_sup)
     qso_thids = drq[1]["THING_ID"][:]
-    w = qso_thids > 0
+    class_person = drq[1]["CLASS_PERSON"][:]
+    z_conf = drq[1]["Z_CONF_PERSON"][:]
+    z = drq[1]["Z_VI"][:]
+
+    ## select objects with good classification
+    w = (qso_thids > 0) & (z_conf==3)
     qso_thids = qso_thids[w]
+    class_person = class_person[w]
+    my_class_person = class_person*1
+    z = z[w]
+
+    ## STARS
+    w = class_person == 1
+    my_class_person[w] = 0
+
+    ## GALAXIES
+    w = class_person == 4
+    my_class_person[w] = 1
+
+    ## QSO_LOWZ, include BAL
+    w = ((class_person==3) | (class_person == 30)) & (z<high_z)
+    my_class_person[w] = 2
+
+    ## QSO_HIGHZ, include BAL
+    w = ((class_person==3) | (class_person == 30)) & (z>=high_z)
+    my_class_person[w] = 3
+
+    drq_classes = ["STAR","GALAXY","QSO_LOWZ","QSO_HIGHZ","BAL"]
+    Y = np.zeros((len(class_person),len(drq_classes)))
+    for i in range(Y.shape[1]):
+        Y[i,my_class_person[i]]=1
+
+    ## add BAL flag
+    w = class_person == 30
+    Y[w,drq_classes.index("BAL")]=1
+
+    ## 
+    target_class = {tid:y for tid,y in zip(qso_thids,Y)}
+    
     drq.close()
 
-    return qso_thids
+    return target_class
 
-def read_plates(plates,pf2tid,qso_thids,nqso=None):
+def read_plates(plates,pf2tid,nplates=None):
     fi = open(plates,"r")
     data = []
-    isqso = []
     read_plates = 0
     tids = []
     for l in fi:
@@ -108,39 +151,33 @@ def read_plates(plates,pf2tid,qso_thids,nqso=None):
         b2_spcframe = plate_dir+"/"+l[3]
         r2_spcframe = plate_dir+"/"+l[4]
         print("INFO: reading plate {}".format(plate_dir))
-        res = read_spcframe(b1_spcframe,r1_spcframe,pf2tid,qso_thids)
-        if res is not None:
-            tid,plate_data,plate_isqso = res
-            data.append(plate_data)
-            isqso.append(plate_isqso)
-            tids = tids + tid
-        res = read_spcframe(b2_spcframe,r2_spcframe,pf2tid,qso_thids)
-        if res is not None:
-            tid,plate_data,plate_isqso = res
-            data.append(plate_data)
-            isqso.append(plate_isqso)
-            tids = tids + tid
 
-        if nqso is not None:
-            if len(data)==nqso:
+        ## read spectro 1
+        res = read_spcframe(b1_spcframe,r1_spcframe,pf2tid)
+        if res is not None:
+            plate_tid,plate_data = res
+            data.append(plate_data)
+            tids = tids + plate_tid
+
+        ## read spectro 2
+        res = read_spcframe(b2_spcframe,r2_spcframe,pf2tid)
+        if res is not None:
+            plate_tid,plate_data = res
+            data.append(plate_data)
+            tids = tids + plate_tid
+
+        if nplates is not None:
+            if len(data)//2==nplates:
                 break
 
     data = np.hstack(data)
 
-    ## normalize
-    mdata = data.mean(axis=1).reshape((-1,1))
-    data -= mdata
-    std = data.std(axis=1).reshape((-1,1))
-    data /= std
-    isqso = np.hstack(isqso)
+    return tids,data
 
-    return tids,mdata,std,data,isqso
-
-def export(fout,tids,mdata,std,data,isqso):
+def export(fout,tids,data):
     h = fitsio.FITS(fout,"rw",clobber=True)
-    h.write(np.array(tids),extname="THIDS")
-    h.write([mdata,std],names=["MDATA","STD"],extname="MEANSTD")
     h.write(data,extname="DATA")
-    h.write(isqso.astype(int),extname="ISQSO")
+    tids = np.array(tids)
+    h.write([tids],names=["TARGETID"],extname="METADATA")
     h.close()
 
