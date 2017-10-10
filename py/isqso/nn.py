@@ -37,7 +37,7 @@ def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
     elif kind=="chi2":
         return cost_chi2(AL,Y,parameters,reg_factor) + reg
     elif kind=="softmax":
-        return cost_softmax(A,Y,parameters,reg_factor) + reg
+        return cost_softmax(AL,Y,parameters,reg_factor) + reg
 
 def cost_logistic(AL,Y):
     m = Y.shape[1]
