@@ -28,10 +28,16 @@ if __name__=="__main__":
 
     tc = data.read_drq_superset(args.super_drq)
     w = np.in1d(tids,tc.keys())
+    tids = tids[w]
     X = np.zeros((Xtmp.shape[0],w.sum()))
     X[:] = Xtmp[:,w]
 
-    Y = np.array([tc[t] for t in tids]).T
+    Ytmp = np.array([tc[t] for t in tids]).T
+    Y = np.zeros(Ytmp.shape)
+    Y[:] = Ytmp
+
+    del Xtmp
+    del Ytmp
 
     print("TOTO: {}".format(Y.shape))
 

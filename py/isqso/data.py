@@ -124,7 +124,7 @@ def read_drq_superset(drq_sup,high_z = 2.1):
 
     drq_classes = ["STAR","GALAXY","QSO_LOWZ","QSO_HIGHZ","BAL"]
     Y = np.zeros((len(class_person),len(drq_classes)))
-    for i in range(Y.shape[1]):
+    for i in range(Y.shape[0]):
         Y[i,my_class_person[i]]=1
 
     ## add BAL flag
