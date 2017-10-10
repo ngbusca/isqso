@@ -57,7 +57,7 @@ def cost_chi2(AL,Y):
 
 def cost_softmax(AL,Y,parameters,reg_factor):
     m = Y.shape[1]
-    return -(Y*np.log(AL)).sum()
+    return -(Y*np.log(AL)).sum()/m
 
 def forward_propagation(X,parameters,kind="logistic"):
 
