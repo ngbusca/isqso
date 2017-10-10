@@ -24,36 +24,42 @@ def activate_prim(z,kind="relu"):
         return 1-a**2
 
 def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
-    if kind=="logistic":
-        return cost_logistic(AL,Y,parameters,reg_factor)
-    elif kind=="chi2":
-        return cost_chi2(AL,Y,parameters,reg_factor)
 
-def cost_logistic(AL,Y,parameters,reg_factor):
+    m = AL.shape[1]
+    reg = 0.
+    for ell in range(1,parameters["L"]+1):
+        reg += np.sum(parameters["W"+str(ell)]**2)
+    
+    reg/=2*m
+
+    if kind=="logistic":
+        return cost_logistic(AL,Y,parameters,reg_factor) + reg
+    elif kind=="chi2":
+        return cost_chi2(AL,Y,parameters,reg_factor) + reg
+    elif kind=="softmax":
+        return cost_softmax(A,Y,parameters,reg_factor) + reg
+
+def cost_logistic(AL,Y):
     m = Y.shape[1]
     
     logprobs = Y*np.log(AL) + (1-Y)*np.log(1-AL)
     logprobs = logprobs.sum()/m
-    reg = 0.
-    for ell in range(1,parameters["L"]+1):
-        reg += np.sum(parameters["W"+str(ell)]**2)
 
-    cost = -logprobs + reg_factor*reg/2/m
+    cost = -logprobs 
 
     return cost
 
-def cost_chi2(AL,Y,parameters,reg_factor):
+def cost_chi2(AL,Y):
     m = Y.shape[1]
     chi2 = np.sum((AL-Y)**2)/2/m
-    reg = 0
-    for ell in range(1,parameters["L"]+1):
-        reg += np.sum(parameters["W"+str(ell)]**2)
-
-    chi2 += reg_factor*reg/2/m
 
     return chi2
 
-def forward_propagation(X,parameters):
+def cost_softmax(AL,Y,parameters,reg_factor):
+    m = Y.shape[1]
+    return -(Y*np.log(AL)).sum()
+
+def forward_propagation(X,parameters,kind="logistic"):
 
     L = parameters["L"]
     cache = {}
@@ -70,10 +76,17 @@ def forward_propagation(X,parameters):
         cache["A"+str(ell)]=A
     
     ## last iteration with sigmoid
+   
     W = parameters["W"+str(L)]
     b = parameters["b"+str(L)]
     Z = W.dot(A)+b
-    A = sigmoid(Z)
+
+    if kind == "logistic":
+        A = sigmoid(Z)
+    elif kind == "softmax":
+        A = np.exp(t)
+        A /= t.sum(axis=0)
+
     cache["Z"+str(L)]=Z
     cache["A"+str(L)]=A
     return A,cache
@@ -86,7 +99,7 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
     A = cache["A"+str(L)]
     if kind=="logistic":
         dA = - (Y/A) + (1-Y)/(1-A)
-    elif kind=="chi2":
+    elif kind=="chi2" or kind == "softmax":
         dA = A-Y
     Z = cache["Z"+str(L)]
     dZ = dA*sigmoid_prim(Z)
