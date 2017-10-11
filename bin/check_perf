@@ -3,16 +3,24 @@
 from isqso import data 
 from isqso import nn
 import fitsio
-import sys
+import argparse
 import numpy as np
 
-#tc=data.read_drq_superset("/uufs/chpc.utah.edu/common/home/sdss02/dr12/boss/qso/DR12Q/Superset_DR12Q.fits")
-tc=data.read_drq_superset(sys.argv[1])
-h = fitsio.FITS("data_dev.fits.gz")
+parser=argparse.ArgumentParser()
+
+parser.add_argument("--nnout",type=str,required=True)
+parser.add_argument("--data",type=str,required=True)
+parser.add_argument("--super-drq",type=str,required=True)
+parser.add_argument("--spall",type=str,required=False,default=None)
+
+args=parser.parse_args()
+
+tc=data.read_drq_superset(args.super_drq)
+h = fitsio.FITS(args.data)
 X = h[0].read()
 tids = h[1]["TARGETID"][:]
 
-h = fitsio.FITS(sys.argv[2])
+h = fitsio.FITS(args.nnout)
 mx = h[1]["MDATA"][:].reshape(-1,1)
 sx = h[1]["SDATA"][:].reshape(-1,1)
 x = (X[:X.shape[0]/2,:]-mx)/sx
@@ -23,15 +31,36 @@ for i in range(1,pars["L"]+1):
 
 A,_ = nn.forward_propagation(x,pars)
 
-perf=np.zeros((5,5))
+perf=np.zeros((4,4))
 for i in range(A.shape[1]):
     tid=tids[i]
     if not tid in tc:continue
     ii=tc[tid].argmax()
     jj=A[:4,i].argmax()
     perf[ii,jj]+=1
-    found_bal=(A[4,i]>0.5)
-    perf[4,4]+= (found_bal and tc[tid][4]==1)
-    perf[4,3]+= (~found_bal and tc[tid][4]==1)
 
 perf/=perf.sum(axis=1).reshape(-1,1)
+
+if args.spall is not None:
+    h = fitsio.FITS(args.spall)
+    tids_spall = h[1]["THING_ID"][:]
+    kind_spall = h[1]["CLASS"][:]
+    z_spall = h[1]["Z"][:]
+
+    w = np.in1d(tids_spall,tids)
+    tids_spall = tids_spall[w]
+    kind_spall = kind_spall[w]
+    z_spall = z_spall[w]
+    spall_dic = {t:(z,k.strip()) for t,z,k in zip(tids_spall,z_spall,kind_spall)}
+
+    classes = ["STAR","GALAXY","QSO"]
+    perf_spall=np.zeros((4,4))
+    for t in tids:
+        if not t in tc:continue
+        ii=tc[t].argmax()
+        jj=classes.index(spall_dic[t][1])
+        if spall_dic[t][0] > 2.1:
+            jj+=1
+        perf_spall[ii,jj]+=1
+
+    perf_spall/=perf_spall.sum(axis=1).reshape(-1,1)
