@@ -19,6 +19,7 @@ if __name__=="__main__":
     parser.add_argument("--reg-factor",required=False,default=0.,type=float,help="regularization factor")
     parser.add_argument("--nit",required=True,type=int,help="number of iterations")
     parser.add_argument("--mini-batch-size",required=False,type=int,help="number of iterations")
+    parser.add_argument("--verbose",required=False,type=int,help="verbosity level")
     parser.add_argument("--kind",required=False,default="logistic",type=str,help="kind of regression")
 
     args = parser.parse_args()
@@ -50,7 +51,7 @@ if __name__=="__main__":
     sx = x.std(axis=1).reshape(-1,1)
     x/=sx
 
-    pars,cost = nn.nn_model(x,Y,nit=args.nit,nn=args.arq,reg_factor=args.reg_factor,learning_rate_init=args.alpha,method="adam",mini_batch_size=args.mini_batch_size,kind=args.kind)
+    pars,cost = nn.nn_model(x,Y,nit=args.nit,nn=args.arq,reg_factor=args.reg_factor,learning_rate_init=args.alpha,method="adam",mini_batch_size=args.mini_batch_size,kind=args.kind,verbose=args.verbose)
 
     fout = args.out_prefix
     for i in args.arq:

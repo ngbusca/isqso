@@ -7,14 +7,15 @@ import sys
 import numpy as np
 
 #tc=data.read_drq_superset("/uufs/chpc.utah.edu/common/home/sdss02/dr12/boss/qso/DR12Q/Superset_DR12Q.fits")
-tc=data.read_drq_superset(sys.argv[0])
+tc=data.read_drq_superset(sys.argv[1])
 h = fitsio.FITS("data_dev.fits.gz")
 X = h[0].read()
+tids = h[1]["TARGETID"][:]
 
-h = fitsio.FITS(sys.argv[1])
+h = fitsio.FITS(sys.argv[2])
 mx = h[1]["MDATA"][:].reshape(-1,1)
 sx = h[1]["SDATA"][:].reshape(-1,1)
-x = (X[:X.shape[2]/2,:]-mx)/sx
+x = (X[:X.shape[0]/2,:]-mx)/sx
 pars = {"L":len(h)-2}
 for i in range(1,pars["L"]+1):
     pars["W"+str(i)]=h[i+1]["W"+str(i)][:]
@@ -22,7 +23,7 @@ for i in range(1,pars["L"]+1):
 
 A,_ = nn.forward_propagation(x,pars)
 
-perf=np.zeros(5,5)
+perf=np.zeros((5,5))
 for i in range(A.shape[1]):
     tid=tids[i]
     if not tid in tc:continue
@@ -32,3 +33,5 @@ for i in range(A.shape[1]):
     found_bal=(A[4,i]>0.5)
     perf[4,4]+= (found_bal and tc[tid][4]==1)
     perf[4,3]+= (~found_bal and tc[tid][4]==1)
+
+perf/=perf.sum(axis=1).reshape(-1,1)
