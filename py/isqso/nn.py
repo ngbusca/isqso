@@ -33,11 +33,13 @@ def compute_cost(AL,Y,parameters,reg_factor,kind="logistic"):
     reg/=2*m
 
     if kind=="logistic":
-        return cost_logistic(AL,Y,parameters,reg_factor) + reg
+        return cost_logistic(AL,Y) + reg
     elif kind=="chi2":
-        return cost_chi2(AL,Y,parameters,reg_factor) + reg
+        return cost_chi2(AL,Y) + reg
     elif kind=="softmax":
-        return cost_softmax(AL,Y,parameters,reg_factor) + reg
+        return cost_softmax(AL,Y,) + reg
+    elif kind=="softmax_bal":
+        return cost_softmax_bal(AL,Y) + reg
 
 def cost_logistic(AL,Y):
     m = Y.shape[1]
@@ -55,9 +57,12 @@ def cost_chi2(AL,Y):
 
     return chi2
 
-def cost_softmax(AL,Y,parameters,reg_factor):
+def cost_softmax(AL,Y):
     m = Y.shape[1]
     return -(Y*np.log(AL)).sum()/m
+
+def cost_softmax_bal(AL,Y):
+    return cost_softmax(AL[:4],Y[:4]) + cost_logistic(AL[4].reshape(1,-1),Y[4].reshape(1,-1))
 
 def forward_propagation(X,parameters,kind="logistic"):
 
@@ -84,8 +89,14 @@ def forward_propagation(X,parameters,kind="logistic"):
     if kind == "logistic":
         A = sigmoid(Z)
     elif kind == "softmax":
-        A = np.exp(t)
-        A /= t.sum(axis=0)
+        zmax = Z.max()
+        A = np.exp(Z-zmax)
+        A /= A.sum(axis=0)
+    elif kind == "softmax_bal":
+        zmax = Z.max(axis=0).reshape(1,-1)
+        A = np.exp(Z-zmax)
+        A /= A.sum(axis=0)
+        A[4] = sigmoid(Z[4])
 
     cache["Z"+str(L)]=Z
     cache["A"+str(L)]=A
@@ -97,12 +108,16 @@ def backward_propagation(parameters,cache,X,Y,reg_factor,kind="logistic"):
     L = parameters["L"]
 
     A = cache["A"+str(L)]
+    Z = cache["Z"+str(L)]
     if kind=="logistic":
         dA = - (Y/A) + (1-Y)/(1-A)
-    elif kind=="chi2" or kind == "softmax":
-        dA = A-Y
-    Z = cache["Z"+str(L)]
-    dZ = dA*sigmoid_prim(Z)
+        dZ = dA*sigmoid_prim(Z)
+    elif kind=="softmax":
+        dZ = A-Y
+    elif kind=="softmax_bal":
+        dZ = A-Y
+        dA = -(Y[4]/A[4]) + (1-Y[4])/(1-A[4])
+        dZ[4] = dA*sigmoid_prim(Z[4])
 
     grads = {}
     for ell in range(L,1,-1):
@@ -195,7 +210,7 @@ def split_batch(X,Y,mini_batch_size):
 
     return x_mini_batch, y_mini_batch
 
-def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate = 1.,mini_batch_size=None,momentum=0.9,momentum2=0.999,kind="logistic",method="gd",beta1=None,beta2=None,verbose=10):
+def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate_init = 1.,mini_batch_size=None,momentum=0.9,momentum2=0.999,kind="logistic",method="gd",beta1=None,beta2=None,verbose=10,slow_down_rate=1e-3):
 
     nx = X.shape[0]
     nn = [nx] + nn
@@ -226,10 +241,11 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate 
     for i in range(nit):
         x_mini_batches, y_mini_batches = split_batch(X,Y,mini_batch_size)
         for imini,(x,y) in enumerate(zip(x_mini_batches,y_mini_batches)):
-            A, cache = forward_propagation(x,parameters)
+            A, cache = forward_propagation(x,parameters,kind=kind)
             grads = backward_propagation(parameters,cache,x,y,reg_factor,kind=kind)
             A,_ = forward_propagation(X,parameters)
             c = compute_cost(A,Y,parameters,reg_factor,kind=kind)
+            learning_rate = learning_rate_init / (1+slow_down_rate*i)
             if method == "gd":
                 parameters = update_parameters(parameters,grads,learning_rate)
             elif method == "momentum":
