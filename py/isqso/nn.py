@@ -259,9 +259,9 @@ def nn_model(X,Y,nn=[10],nit = 1000,reg_factor=1.,parameters=None,learning_rate_
 
     return parameters,cost
 
-def export(fout,parameters,arq,cost,mean_data,std_data,alpha,reg_factor,nit):
+def export(fout,parameters,arq,cost,mean_data,std_data,alpha,reg_factor,nit,kind):
     f = fitsio.FITS(fout,"rw",clobber=True)
-    head={"LAYERS":parameters["L"],"ALPHA":alpha,"REG":reg_factor,"NIT":nit}
+    head={"LAYERS":parameters["L"],"ALPHA":alpha,"REG":reg_factor,"NIT":nit,"KIND":kind}
     sarq = "logistic"
     if len(arq)>0:
         sarq=""

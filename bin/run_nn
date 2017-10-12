@@ -19,7 +19,7 @@ if __name__=="__main__":
     parser.add_argument("--reg-factor",required=False,default=0.,type=float,help="regularization factor")
     parser.add_argument("--nit",required=True,type=int,help="number of iterations")
     parser.add_argument("--mini-batch-size",required=False,type=int,help="number of iterations")
-    parser.add_argument("--verbose",required=False,type=int,help="verbosity level")
+    parser.add_argument("--verbose",required=False,type=int,help="verbosity level",default=1)
     parser.add_argument("--kind",required=False,default="logistic",type=str,help="kind of regression")
 
     args = parser.parse_args()
@@ -60,5 +60,5 @@ if __name__=="__main__":
     fout = fout + "_alpha_{:.1e}".format(args.alpha)
     fout = fout + "_kind_" + args.kind
     fout = fout + ".fits.gz"
-    nn.export(fout,pars,args.arq,cost,mx,sx,args.alpha,args.reg_factor,args.nit)
+    nn.export(fout,pars,args.arq,cost,mx,sx,args.alpha,args.reg_factor,args.nit,args.kind)
 
