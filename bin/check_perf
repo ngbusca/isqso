@@ -29,7 +29,7 @@ for i in range(1,pars["L"]+1):
     pars["W"+str(i)]=h[i+1]["W"+str(i)][:]
     pars["b"+str(i)]=h[i+1]["b"+str(i)][:].reshape(-1,1)
 
-A,_ = nn.forward_propagation(x,pars)
+A,_ = nn.forward_propagation(x,pars,kind="softmax_bal")
 
 perf=np.zeros((4,4))
 for i in range(A.shape[1]):
