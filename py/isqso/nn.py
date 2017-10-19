@@ -200,8 +200,11 @@ def split_batch(X,Y,mini_batch_size):
     Y_shuffled = Y[:,a]
 
     for i in range(m//mini_batch_size):
-        x_mini_batch.append(X_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size])
-        y_mini_batch.append(Y_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size])
+        x_mini = X_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size]
+        y_mini = Y_shuffled[:,i*mini_batch_size:(i+1)*mini_batch_size]
+
+        x_mini_batch.append(x_mini)
+        y_mini_batch.append(y_mini)
 
     ## last
     if m % mini_batch_size != 0:

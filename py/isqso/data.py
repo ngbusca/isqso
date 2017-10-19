@@ -76,6 +76,73 @@ def read_spcframe(b_spcframe,r_spcframe,pf2tid):
 
     return tids,data
 
+def read_spplate(spplate, pf2tid):
+    data = []
+    tids = []
+
+    h = fitsio.FITS(spplate)
+    target_bits = h[5]["BOSS_TARGET1"][:]
+    w = np.zeros(len(target_bits),dtype=bool)
+    mask = [10,11,12,13,14,15,16,17,18,19,40,41,42,43,44]
+    for i in mask:
+        w = w | (target_bits & 2**i)
+    w = w>0
+    print("INFO: found {} quasars in file {}".format(w.sum(),spplate))
+
+    plate = h[0].read_header()["PLATEID"]
+    fid = h[5]["FIBERID"][:]
+    fl = h[0].read()
+    iv = h[1].read()*(h[2].read()==0)
+    coeff0 = h[0].read_header()["COEFF0"]
+    coeff1 = h[0].read_header()["COEFF1"]
+    ll = coeff0 + coeff1*np.arange(fl.shape[1])
+    ll = np.broadcast_to(ll,fl.shape)
+
+
+    fid = fid[w]
+    fl = fl[w,:]
+    iv = iv[w,:]
+    ll = ll[w,:]
+
+    for i in range(fl.shape[0]):
+        if (plate,fid[i]) in pf2tid:
+            t = pf2tid[(plate,fid[i])]
+        else:
+            print("DEBUG: ({},{}) not found in spall".format(plate,fid[i]))
+            continue
+
+        fl_aux = np.zeros(nbins)
+        iv_aux = np.zeros(nbins)
+        bins = ((ll[i]-llmin)/dll).astype(int)
+        wbin = (bins>=0) & (bins<nbins) & (iv[i]>0)
+        bins=bins[wbin]
+        c = np.bincount(bins,weights=fl[i,wbin]*iv[i,wbin])
+        fl_aux[:len(c)]=+c
+        c = np.bincount(bins,weights=iv[i,wbin])
+        iv_aux[:len(c)]=+c
+        nmasked = (iv_aux==0).sum()
+        if nmasked >= nmasked_max :
+            print("INFO: skipping specrum {} with too many masked pixels {}".format(t,nmasked))
+            continue
+        data.append(np.hstack((fl_aux,iv_aux)))
+        tids.append(t)
+
+        assert ~np.isnan(fl_aux,iv_aux).any()
+
+    if len(data)==0:
+        return
+    data = np.vstack(data).T
+    assert ~np.isnan(data).any()
+    ## now normalize coadded fluxes
+    norm = data[nbins:,:]*1.
+    w = norm==0
+    norm[w] = 1.
+    data[:nbins,:]/=norm
+
+    assert ~np.isnan(data).any()
+
+    return tids,data
+
 def read_spall(spall):
     spall = fitsio.FITS(spall)
     plate=spall[1]["PLATE"][:]
@@ -138,7 +205,7 @@ def read_drq_superset(drq_sup,high_z = 2.1):
 
     return target_class
 
-def read_plates(plates,pf2tid,nplates=None):
+def read_spcframes(plates,pf2tid,nplates=None):
     fi = open(plates,"r")
     data = []
     read_plates = 0
@@ -169,6 +236,34 @@ def read_plates(plates,pf2tid,nplates=None):
         if nplates is not None:
             if len(data)//2==nplates:
                 break
+
+    data = np.hstack(data)
+
+    return tids,data
+
+def read_spplates(plates,pf2tid,nplates=None):
+    fi = open(plates,"r")
+    data = []
+    read_plates = 0
+    tids = []
+    for l in fi:
+        l = l.split()
+        plate_dir = l[0]
+        spplates = glob.glob(plate_dir+"/spPlate*")
+        for spplate in spplates:
+            print("INFO: reading plate {}".format(spplate))
+
+            ## read 
+            res = read_spplate(spplate, pf2tid)
+
+            if res is not None:
+                plate_tid,plate_data = res
+                data.append(plate_data)
+                tids = tids + plate_tid
+
+            if nplates is not None:
+                if len(data)//2==nplates:
+                    break
 
     data = np.hstack(data)
 
