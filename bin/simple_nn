@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+
+import numpy as np
+from keras import layers
+from keras.layers import Input, Add, Dense, Activation, ZeroPadding2D, BatchNormalization, Flatten, Conv1D, AveragePooling1D, MaxPooling1D, GlobalMaxPooling2D
+from keras.models import Model, load_model, save_model
+from keras.preprocessing import image
+from keras.utils import layer_utils
+from keras.utils.data_utils import get_file
+from keras.applications.imagenet_utils import preprocess_input
+import pydot
+from IPython.display import SVG
+from keras.utils.vis_utils import model_to_dot
+from keras.utils import plot_model
+#from resnets_utils import *
+from keras.initializers import glorot_uniform
+import scipy.misc
+
+import keras.backend as K
+K.set_image_data_format('channels_last')
+K.set_learning_phase(1)
+
+def SimpleNet(input_shape =  None, classes = 6):
+    
+    # Define the input as a tensor with shape input_shape
+    X_input = Input(input_shape)
+    X = X_input
+
+    nlayers=5
+    for stage in range(nlayers):
+        X = Conv1D(stage+1, 2*(nlayers-stage), strides = 1,name = 'conv{}'.format(stage+1), kernel_initializer = glorot_uniform(seed=0))(X)
+        X = Activation('relu')(X)
+        X = MaxPooling1D(pool_size=10, strides = 2)(X)
+
+    # output layer
+    X = Flatten()(X)
+    X = Dense(classes, activation='softmax', name='fc' + str(classes), kernel_initializer = glorot_uniform(seed=0))(X)
+    
+    
+    # Create model
+    model = Model(inputs = X_input, outputs = X, name='SimpleNet')
+
+    return model
+
+
+from isqso import data
+
+tc = data.read_drq_superset("/Users/ngbusca/Boulot/myhub/isqso/data/Superset_DR12Q.fits")
+
+import fitsio
+h=fitsio.FITS("/Users/ngbusca/Boulot/myhub/isqso/data/data_training.fits.gz")
+Xtmp = h[0].read().T
+tids = h[1]["TARGETID"][:]
+Xtmp = Xtmp[:,:443]
+w = np.in1d(tids,tc.keys())
+tids = tids[w]
+X_train = np.zeros((w.sum(), Xtmp.shape[1]))
+X_train[:] = Xtmp[w,:]
+del Xtmp
+mdata = X_train.mean(axis=0)
+sdata = X_train.std(axis=0)
+X_train-=mdata
+X_train/=sdata
+
+Ytmp = np.array([tc[t] for t in tids])
+w=(Ytmp[:,3]==1) & (Ytmp[:,4]==1)
+Ytmp[w,3]=0
+Y_train=np.zeros(Ytmp.shape)
+Y_train[:]=Ytmp
+del Ytmp
+
+h.close()
+h=fitsio.FITS("/Users/ngbusca/Boulot/myhub/isqso/data/data_validation.fits.gz")
+Xtmp = h[0].read()[:443].T
+tids = h[1]["TARGETID"][:]
+w = np.in1d(tids,tc.keys())
+tids=tids[w]
+X_valid = np.zeros((w.sum(), Xtmp.shape[1]))
+X_valid[:] = Xtmp[w,:]
+del Xtmp
+X_valid-=mdata
+X_valid/=sdata
+h.close()
+Ytmp = np.array([tc[t] for t in tids])
+w=(Ytmp[:,3]==1) & (Ytmp[:,4]==1)
+Ytmp[w,3]=0
+Y_valid=np.zeros(Ytmp.shape)
+Y_valid[:]=Ytmp
+del Ytmp
+
+
+model = SimpleNet(input_shape = X_train[0,:,None].shape, classes = Y_train.shape[1])
+model.compile(optimizer='adam', loss = 'categorical_crossentropy', metrics=['accuracy'])
+
+history = model.fit(X_train[:,:,None], Y_train, epochs = 1, batch_size = 32)
+
+
+preds = model.evaluate(X_train[:,:,None], Y_train)
+print ("Loss = " + str(preds[0]))
+print ("Test Accuracy = " + str(preds[1]))
+
+
+
+print(history.history.keys())
+plot(history.history['loss'],"o-")
+plot(history.history['val_loss'],"o-")
+plot(history.history['acc'],"o-")
+plot(history.history['val_acc'],"o-")
+
+
+model.summary()
+
+plot_model(model, to_file='model.png')
+SVG(model_to_dot(model).create(prog='dot', format='svg'))
+
